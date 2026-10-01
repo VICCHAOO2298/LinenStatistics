@@ -82,7 +82,7 @@
         let appCategories = JSON.parse(localStorage.getItem('laundry_cats_standalone')) || DEFAULT_CATEGORIES;
         let appShortcuts = JSON.parse(localStorage.getItem('laundry_shortcuts_standalone')) || ["保潔墊", "沙發套", "抱枕套"];
         
-        // 您的專屬 GAS API 網址
+        // Google Apps Script API 網址
         const appGasUrl = 'https://script.google.com/macros/s/AKfycbzzo2Nu8W17lshyfV9TazThsejYbf-GloimfbtZpsQ0pW2_p3ME33QeyThDQ2gvETANLQ/exec';
 
         function saveCategories() { localStorage.setItem('laundry_cats_standalone', JSON.stringify(appCategories)); }
@@ -594,30 +594,24 @@
                         <div class="space-y-0 divide-y divide-brand-dark/5">
                             <div class="flex justify-between items-center py-2 text-[10px] text-brand-dark/50 font-bold tracking-wider">
                                 <span class="w-16 shrink-0">品項</span>
-                                <div class="flex-1 flex justify-end gap-2 sm:gap-4 text-center">
-                                    <span class="w-10">拆床</span><span class="w-10 text-brand-accent">洗回</span><span class="w-10">差異</span>
+                                <div class="flex-1 flex justify-end gap-4 sm:gap-6 text-center">
+                                    <span class="w-14">拆床數</span><span class="w-14 text-brand-accent">廠商洗回</span>
                                 </div>
                             </div>
                 `;
                 
-                // 扁平化列表顯示
+                // 扁平化列表顯示，去除差異
                 appCategories.forEach(category => {
                     category.items.forEach(item => {
                         const count = totalItems[item];
                         const retCount = totalReturned[item];
                         if (count > 0 || retCount > 0) {
-                            const diff = retCount - count;
-                            let diffHtml = diff < 0 ? `<span class="text-rose-500 font-bold">${diff}</span>` :
-                                           diff > 0 ? `<span class="text-emerald-500 font-bold">+${diff}</span>` :
-                                           `<span class="text-brand-dark/30 font-bold">0</span>`;
-
                             html += `
                                 <div class="flex justify-between items-center py-2.5">
                                     <span class="text-[13px] font-semibold text-brand-dark/80 w-16 shrink-0 break-all leading-tight">${item}</span>
-                                    <div class="flex-1 flex justify-end gap-2 sm:gap-4 text-center font-mono text-base">
-                                        <span class="w-10 font-medium text-brand-dark/70">${count}</span>
-                                        <span class="w-10 font-black text-brand-accent">${retCount}</span>
-                                        <span class="w-10">${diffHtml}</span>
+                                    <div class="flex-1 flex justify-end gap-4 sm:gap-6 text-center font-mono text-base">
+                                        <span class="w-14 font-medium text-brand-dark/70">${count}</span>
+                                        <span class="w-14 font-black text-brand-accent">${retCount}</span>
                                     </div>
                                 </div>
                             `;
@@ -1057,14 +1051,12 @@
         }
 
         async function syncToGoogleSheets() {
-            // 抓取當前介面的日期 (通常是當日)
             const date = state.currentDate;
             const nowStr = new Date().toLocaleString('zh-TW');
             
             let itemCols = [];
             appCategories.forEach(cat => cat.items.forEach(item => itemCols.push(item)));
 
-            // 1. 計算當日的總計數據
             let totalItems = {};
             let recordedRooms = 0;
             let targetStatusRoomsCount = 0;
@@ -1092,12 +1084,10 @@
 
             let uncleanedRooms = Math.max(0, targetStatusRoomsCount - recordedRooms);
 
-            // 2. 組合「當日總計」要傳送的單行資料
             let summaryHeaders = ['最後更新時間', '日期', '已記錄房間數', '未拆間數', ...itemCols];
             let summaryRow = [nowStr, date, recordedRooms, uncleanedRooms];
             itemCols.forEach(item => summaryRow.push(totalItems[item] || 0));
 
-            // 3. 組合「廠商洗回」要傳送的單行資料
             let returnHeaders = ['最後更新時間', '日期', ...itemCols];
             let returnRow = [nowStr, date];
             let hasReturned = false;
@@ -1107,7 +1097,6 @@
                 returnRow.push(val);
             });
 
-            // 建立傳送格式 (只送總計與洗回，不送每間房細節)
             const payload = {
                 summary: { headers: summaryHeaders, data: summaryRow },
                 returns: hasReturned ? { headers: returnHeaders, data: returnRow } : null
@@ -1122,7 +1111,6 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(payload)
                 });
-                // 因為現在是覆蓋邏輯，文案改為更新成功
                 showMessage("✅ 當日總計已成功備份/更新！");
             } catch (error) {
                 console.error("GAS Sync Error:", error);
@@ -1130,7 +1118,6 @@
             }
         }
 
-        // 綁定全域函式供 HTML 使用
         window.exitRetro = exitRetro;
         window.selectLoginRole = selectLoginRole;
         window.attemptLogin = attemptLogin;
@@ -1171,7 +1158,6 @@
             if(state.view === 'login' && state.loginRole && event.key === 'Enter') attemptLogin();
         });
 
-        // 初始化渲染
         render();
     </script>
 </body>
