@@ -1057,53 +1057,63 @@
         }
 
         async function syncToGoogleSheets() {
-            let targetDates = [state.currentDate];
+            // 抓取當前介面的日期 (通常是當日)
+            const date = state.currentDate;
             const nowStr = new Date().toLocaleString('zh-TW');
             
             let itemCols = [];
             appCategories.forEach(cat => cat.items.forEach(item => itemCols.push(item)));
 
-            let records = [];
-            let recordHeaders = ['匯出時間', '日期', '房號', '房況狀態', '特殊標籤', ...itemCols, '特殊備註'];
-            records.push(recordHeaders);
+            // 1. 計算當日的總計數據
+            let totalItems = {};
+            let recordedRooms = 0;
+            let targetStatusRoomsCount = 0;
+            appCategories.forEach(cat => cat.items.forEach(item => totalItems[item] = 0));
 
-            let returns = [];
-            let returnHeaders = ['匯出時間', '日期', ...itemCols];
-            returns.push(returnHeaders);
+            let dayData = allData[date] || { rooms: {}, returned: {} };
+            let roomsData = dayData.rooms || {};
+            let returnedData = dayData.returned || {};
 
-            targetDates.forEach(date => {
-                let dayData = allData[date] || { rooms: {}, returned: {} };
-                let roomsData = dayData.rooms || {};
-                let returnedData = dayData.returned || {};
+            ROOMS.forEach(room => {
+                const data = roomsData[room] || { items: {}, note: '', status: '空車', specialType: '一般' };
+                if (['未退', '退房'].includes(data.status)) targetStatusRoomsCount++;
 
-                ROOMS.forEach(room => {
-                    const data = roomsData[room];
-                    if (!data) return;
-                    const hasItem = Object.values(data.items || {}).some(v => v > 0);
-                    if (hasItem || data.note || data.status !== '空車' || data.specialType !== '一般') {
-                        let row = [nowStr, date, room, data.status || '空車', data.specialType || '一般'];
-                        itemCols.forEach(item => row.push((data.items && data.items[item]) ? data.items[item] : 0));
-                        row.push((data.note || '').replace(/\n/g, ' / '));
-                        records.push(row);
+                let hasItem = false;
+                if (data.items) {
+                    for (const item in data.items) {
+                        if (data.items[item] > 0) {
+                            totalItems[item] += data.items[item];
+                            hasItem = true;
+                        }
                     }
-                });
-
-                let hasReturned = Object.values(returnedData).some(v => v > 0);
-                if (hasReturned) {
-                    let retRow = [nowStr, date];
-                    itemCols.forEach(item => retRow.push(returnedData[item] || 0));
-                    returns.push(retRow);
                 }
+                if (hasItem || data.note || data.specialType !== '一般') recordedRooms++;
             });
 
-            if (records.length === 1 && returns.length === 1) return showMessage("所選區間內尚無任何紀錄可匯出");
+            let uncleanedRooms = Math.max(0, targetStatusRoomsCount - recordedRooms);
 
+            // 2. 組合「當日總計」要傳送的單行資料
+            let summaryHeaders = ['最後更新時間', '日期', '已記錄房間數', '未拆間數', ...itemCols];
+            let summaryRow = [nowStr, date, recordedRooms, uncleanedRooms];
+            itemCols.forEach(item => summaryRow.push(totalItems[item] || 0));
+
+            // 3. 組合「廠商洗回」要傳送的單行資料
+            let returnHeaders = ['最後更新時間', '日期', ...itemCols];
+            let returnRow = [nowStr, date];
+            let hasReturned = false;
+            itemCols.forEach(item => {
+                let val = returnedData[item] || 0;
+                if (val > 0) hasReturned = true;
+                returnRow.push(val);
+            });
+
+            // 建立傳送格式 (只送總計與洗回，不送每間房細節)
             const payload = {
-                records: records.length > 1 ? records : null,
-                returns: returns.length > 1 ? returns : null
+                summary: { headers: summaryHeaders, data: summaryRow },
+                returns: hasReturned ? { headers: returnHeaders, data: returnRow } : null
             };
 
-            showMessage("🔄 正在背景同步至 Google 試算表...");
+            showMessage("🔄 正在背景備份至雲端資料庫...");
 
             try {
                 await fetch(appGasUrl, {
@@ -1112,7 +1122,8 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(payload)
                 });
-                showMessage("✅ 同步請求已送出！請查看您的試算表");
+                // 因為現在是覆蓋邏輯，文案改為更新成功
+                showMessage("✅ 當日總計已成功備份/更新！");
             } catch (error) {
                 console.error("GAS Sync Error:", error);
                 showMessage("❌ 同步失敗，請檢查網路連線");
